@@ -1,0 +1,177 @@
+---
+title: "Final Project Report"
+author: "Nathan Thomas"
+date: "Due: December 15, 2021"
+output: html_notebook
+---
+
+
+# Introduction: Research Question and Reading Data
+### Research Question
+The point of this project is to identify if user given scores are different across genres in anime, and if those trends are the same with video games in 2016. Both anime and video games have become increasingly popular over the past few years, so seeing if trends are the same across different mediums could be interesting and even useful in a business sense. Both data frames use scores given by users, so that is the score that will be used for comparison.
+
+
+### Reading in Data
+```{r}
+library(tidyverse)
+library(mosaic)
+```
+
+```{r}
+tidy_anime <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-04-23/tidy_anime.csv")
+
+vgs <- read.csv("Video_Games_Sales_as_at_22_Dec_2016.csv")
+
+```
+
+### Inspecting Data
+```{r}
+head(tidy_anime)
+str(tidy_anime)
+head(vgs)
+str(vgs)
+```
+
+Both data sources have some comparable variables such as genre and score. An observation to keep in mind for both data frames is that there are some repeat titles because of things like different producers, platforms, or having multiple genres. There is an interesting problem with the User_Score variable of the vgs data frame where cases without scores have blank strings instead of NA values. This makes it hard to look at summary statistics. To fix this I used a loop with a regular expression to go through each case in the vgs data frame and check if it ends in a numeric digit. If it doesn't then it changes that value to NA. I then changed the variable to numeric values to aid in plots and summary statistics later.
+
+```{r}
+#Removing non-numeric values from User_Score
+for (i in 1:nrow(vgs)){
+  if (grepl("[0-9]$", vgs[i,13]) == F){
+    vgs[i,13] = NA
+  }
+}
+#making scores numeric values
+vgs <- vgs %>%
+  mutate(User_Score = as.numeric(User_Score))
+
+str(vgs$User_Score)
+```
+
+# Initial Summary Statistics
+### Summary Statistics for Anime
+Before looking at specific genres it can be useful to have a baseline by looking at the data frame as a whole. 
+
+```{r}
+tidy_anime %>%
+  summarise(MeanScore = mean(score, na.rm = TRUE), 
+            MedianScore = median(score, na.rm = TRUE), 
+            MaxRank = max(rank),
+            TotalShows = n_distinct(name))
+
+```
+
+The mean score and median score will be useful to look at when we compare genres later. An interesting observation is that the max rank exceeds the number of shows. This could be due to multiple shows having the same name, or separate listings for the same show.
+
+### Summary Statistics for Video Games
+
+```{r}
+vgs %>%
+  summarise(MeanCritic = mean(Critic_Score, na.rm = TRUE), 
+            MeanUser = mean(User_Score, na.rm = TRUE),
+            MedianUser = median(User_Score, na.rm = TRUE),
+            NumGames = n_distinct(Name))
+
+```
+
+Here it should be noted that critic scores are out of 100 and user scores are out of 10. An interesting observation is the mean and median user scores are slightly higher than those of anime. There are also similar numbers of distinct anime and video games, though the anime data frame does have about 2000 more distinct shows. Next I will define the top 10 most popular genres for both video games and anime. This will allow us to look at the top 3 between the two to compare scores. Note that popular genres will not be determined based on score but on the number of titles within each genre.
+
+# Comparing Scores Across Genres
+### Defining Top Genres
+
+```{r}
+tidy_anime %>%
+  group_by(genre) %>%
+  summarise(total = n_distinct(name)) %>%
+  arrange(desc(total)) 
+
+```
+
+```{r}
+vgs %>%
+  group_by(Genre) %>%
+  summarise(total = n_distinct(Name)) %>%
+  arrange(desc(total)) 
+
+```
+Here we see the top genres for both anime and video games. The video games data frame has far fewer genres than the anime data frame, about 1/3 as many. Going forward I will use the Action, Sports, and Adventure genres for analysis. These were mostly taken from the top 5 genres from video games, but all three are still relatively popular in anime as well with sports being the least so. With these identified we can make a new data frame with just these popular genres.
+
+```{r}
+popanime <-
+  tidy_anime %>%
+  filter(genre == c("Action", "Sports", "Adventure")) %>%
+  mutate(type = "anime") %>%
+  select(name, genre, score, type)
+
+popvgs <-
+  vgs %>%
+  filter(Genre == c("Action", "Sports", "Adventure")) %>%
+  rename(score = User_Score, genre = Genre, name = Name) %>% 
+  #renaming variables to combine data frames later
+  mutate(type = "vg") %>%
+  select(name, genre, score, type)
+
+```
+
+Now that we have only the popular genres we can use boxplots to compare if there is a difference between the summary statistics for both data frames as a whole and what is shown for each genre.
+
+### Boxplots of Scores
+
+```{r}
+popanime %>%
+  ggplot(aes(y = score, x = genre)) +
+  geom_boxplot(aes(color = genre)) +
+  stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="orange")
+
+```
+
+```{r}
+popvgs %>%
+  ggplot(aes(y = score, x = genre)) +
+  geom_boxplot(aes(color = genre)) +
+  stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="orange")
+
+```
+
+Both these plots show that there is little difference between each genre in their respective data frames and that the median scores for each genre are very close to the median score as a whole. The mean score for each genre is also close to the mean scores as a whole. Looking at the boxplots side-by-side we get the following plot.
+
+```{r}
+popeverything <-
+  bind_rows(popanime, popvgs)
+
+popeverything %>%
+  ggplot(aes(y = score, x = genre)) +
+  geom_boxplot(aes(color = genre)) +
+  facet_wrap( ~ type) +
+  stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="orange") 
+
+```
+It seems that both video games and anime have similar mean and median scores given by users. Video games do have a slightly higher median score across the three genres, but they also have a lot of low-score outliers. It can be useful to look at the distribution of scores between both datasets which can be done with a density plot.
+
+### Density plots of Scores
+```{r}
+popeverything %>%
+ggplot(aes(x = score, group = genre)) + 
+  geom_density(alpha = 0.75, aes(color = genre)) + 
+  geom_point(alpha = 0.02, aes(y = 0.002),  
+             position = position_jitter(height = 0.02)) 
+```
+This plots shows that each genre has a score of around 7-7.5. That goes along with the jittered points of scores, so it seems that scores are consistent across genres. It seems that the Action genre has the most consistent scores with a very smooth density line peaking at just under 7.5. Let's see if this trend continues when broken down by type.
+
+```{r}
+popeverything %>%
+ggplot(aes(x = score, group = genre)) + 
+  geom_density(alpha = 0.75, aes(color = genre)) + 
+  geom_point(alpha = 0.02, aes(y = 0.002),  
+             position = position_jitter(height = 0.02)) +
+  facet_wrap( ~ type) +
+  ylab("density")
+```
+These plots show that the trend does continue. An interesting observation is that there is a higher overall density of anime scores than video game scores. This is expected since there are almost twice as many cases in the anime data frame than in the video game data frame when filtered for popular genres.
+
+# Conclusions and Challenges
+### Conclusions
+Through the boxplots and the density plot it is clear that user scores are very consistent across genres for both anime and video games. While video games have a slightly higher median score than anime, they are still very close. I expected some more deviation between the two since the mediums can be so different and are enjoyed differently, but there could be multiple factors as to why scores are similar. It would be interesting to compare these observations to different entertainment mediums such as movies, TV shows, or plays to see if this trend persists. If the trend did persist it could just be a general trend across all entertainment which would be an interesting find. 
+
+### Challenges
+One challenge I faced during this project was use of multiple topics from class. I overcame this by finding a way to use both a loop and regular expression to remove blank character strings from the vgs data frame. Writing the loop took a while because I had some trouble transferring how the loop worked in my head to actual code. I also had some challenges with RStudio Server while working on this project. When I first tried combining the data frames something went wrong which caused the project to keep crashing. I thought it was a problem with Rstudio Server, but after waiting for a while the problem kept happening. When I removed the bad code everything was fixed and I wa able to rewrite it correctly.
